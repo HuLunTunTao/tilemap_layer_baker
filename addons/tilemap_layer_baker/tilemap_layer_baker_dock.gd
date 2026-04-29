@@ -66,7 +66,6 @@ func _build_ui() -> void:
 
 	_bake_button = Button.new()
 	_bake_button.text = "烘焙选中 TileMapLayer"
-	_bake_button.tooltip_text = "也可以从 Project > Tools > Bake Selected TileMapLayers 触发"
 	_bake_button.pressed.connect(bake_selected)
 	add_child(_bake_button)
 
