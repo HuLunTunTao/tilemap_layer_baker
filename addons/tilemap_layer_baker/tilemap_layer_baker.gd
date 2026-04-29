@@ -135,17 +135,20 @@ static func _compose_group(layers: Array) -> Dictionary:
 	var texture_cache := {}
 
 	for layer in layers:
+		var layer_items: Array[Dictionary] = []
 		for cell in layer.get_used_cells():
 			var item := _make_draw_item(layer, cell, texture_cache)
 			if item.is_empty():
 				continue
-			items.append(item)
+			layer_items.append(item)
 			var rect: Rect2 = item["rect"]
 			if has_bounds:
 				bounds = bounds.merge(rect)
 			else:
 				bounds = rect
 				has_bounds = true
+		_sort_items_for_draw(layer_items)
+		items.append_array(layer_items)
 
 	if items.is_empty() or not has_bounds:
 		return {"ok": false, "error": "选中图层没有可绘制图块。"}
@@ -225,7 +228,20 @@ static func _make_draw_item(layer: TileMapLayer, cell: Vector2i, texture_cache: 
 	var center := layer.to_global(layer.map_to_local(cell))
 	var top_left := center - Vector2(tile_image.get_size()) * 0.5 + texture_origin
 	var rect := Rect2(top_left, Vector2(tile_image.get_size()))
-	return {"image": tile_image, "rect": rect}
+	var local_position := layer.map_to_local(cell)
+	var z_index := 0
+	var y_sort_origin := 0
+	if tile_data != null:
+		z_index = tile_data.z_index
+		y_sort_origin = tile_data.y_sort_origin
+	return {
+		"image": tile_image,
+		"rect": rect,
+		"cell": cell,
+		"local_position": local_position,
+		"z_index": z_index,
+		"y_sort_origin": y_sort_origin,
+	}
 
 static func _get_texture_image(texture: Texture2D, texture_cache: Dictionary) -> Image:
 	var key := str(texture.get_rid())
@@ -310,9 +326,45 @@ static func _group_z_index(layers: Array) -> int:
 static func _sort_layers_for_draw(layers: Array) -> void:
 	layers.sort_custom(func(a: Node, b: Node) -> bool:
 		if a.z_index == b.z_index:
-			return String(a.get_path()) < String(b.get_path())
+			return _is_before_in_tree(a, b)
 		return a.z_index < b.z_index
 	)
+
+static func _sort_items_for_draw(items: Array[Dictionary]) -> void:
+	items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["z_index"] != b["z_index"]:
+			return a["z_index"] < b["z_index"]
+		var a_pos: Vector2 = a["local_position"]
+		var b_pos: Vector2 = b["local_position"]
+		var a_y := a_pos.y + float(a["y_sort_origin"])
+		var b_y := b_pos.y + float(b["y_sort_origin"])
+		if not is_equal_approx(a_y, b_y):
+			return a_y < b_y
+		if not is_equal_approx(a_pos.x, b_pos.x):
+			return a_pos.x < b_pos.x
+		var a_cell: Vector2i = a["cell"]
+		var b_cell: Vector2i = b["cell"]
+		if a_cell.y == b_cell.y:
+			return a_cell.x < b_cell.x
+		return a_cell.y < b_cell.y
+	)
+
+static func _is_before_in_tree(a: Node, b: Node) -> bool:
+	var a_chain := _node_index_chain(a)
+	var b_chain := _node_index_chain(b)
+	var count := mini(a_chain.size(), b_chain.size())
+	for index in range(count):
+		if a_chain[index] != b_chain[index]:
+			return a_chain[index] < b_chain[index]
+	return a_chain.size() < b_chain.size()
+
+static func _node_index_chain(node: Node) -> Array[int]:
+	var chain: Array[int] = []
+	var current := node
+	while current != null:
+		chain.push_front(current.get_index())
+		current = current.get_parent()
+	return chain
 
 static func _find_scene_root(node: Node) -> Node:
 	var current := node
