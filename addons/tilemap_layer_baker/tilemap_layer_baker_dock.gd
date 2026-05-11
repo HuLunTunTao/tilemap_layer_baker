@@ -2,8 +2,13 @@
 extends VBoxContainer
 
 const TileMapLayerBaker := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker.gd")
+const I18N := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker_i18n.gd")
 
 var _editor_interface
+var _title_label: Label
+var _hint_label: Label
+var _output_dir_label: Label
+var _prefix_label: Label
 var _output_dir_edit: LineEdit
 var _prefix_edit: LineEdit
 var _combine_by_z_check: CheckBox
@@ -15,57 +20,53 @@ var _bake_button: Button
 
 func setup(editor_interface) -> void:
 	_editor_interface = editor_interface
-	name = "TileMap Baker"
+	I18N.update_editor_locale(editor_interface)
+	name = I18N.t("TileMap Baker")
 	_build_ui()
 
 func _build_ui() -> void:
 	custom_minimum_size = Vector2(300, 0)
 
-	var title := Label.new()
-	title.text = "TileMapLayer Baker"
-	title.add_theme_font_size_override("font_size", 18)
-	add_child(title)
+	_title_label = Label.new()
+	_title_label.add_theme_font_size_override("font_size", 18)
+	add_child(_title_label)
 
-	var hint := Label.new()
-	hint.text = "选中一个或多个静态 TileMapLayer 后，一键烘焙成 PNG + Sprite2D。"
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(hint)
+	_hint_label = Label.new()
+	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_hint_label)
 
 	add_child(_make_separator())
 
-	add_child(_make_field_label("输出目录"))
+	_output_dir_label = _make_field_label("")
+	add_child(_output_dir_label)
 	_output_dir_edit = LineEdit.new()
 	_output_dir_edit.text = "res://assets/baked"
 	_output_dir_edit.placeholder_text = "res://assets/baked"
 	add_child(_output_dir_edit)
 
-	add_child(_make_field_label("文件前缀（留空使用场景名）"))
+	_prefix_label = _make_field_label("")
+	add_child(_prefix_label)
 	_prefix_edit = LineEdit.new()
 	_prefix_edit.placeholder_text = "level1_4"
 	add_child(_prefix_edit)
 
 	_combine_by_z_check = CheckBox.new()
-	_combine_by_z_check.text = "按 z_index 分组合并"
 	_combine_by_z_check.button_pressed = true
 	add_child(_combine_by_z_check)
 
 	_hide_sources_check = CheckBox.new()
-	_hide_sources_check.text = "烘焙后隐藏源 TileMapLayer"
 	_hide_sources_check.button_pressed = true
 	add_child(_hide_sources_check)
 
 	_include_hidden_check = CheckBox.new()
-	_include_hidden_check.text = "包含隐藏图层（便于重新烘焙）"
 	_include_hidden_check.button_pressed = true
 	add_child(_include_hidden_check)
 
 	_overwrite_check = CheckBox.new()
-	_overwrite_check.text = "覆盖同名 PNG / Baked Sprite"
 	_overwrite_check.button_pressed = true
 	add_child(_overwrite_check)
 
 	_bake_button = Button.new()
-	_bake_button.text = "烘焙选中 TileMapLayer"
 	_bake_button.pressed.connect(bake_selected)
 	add_child(_bake_button)
 
@@ -73,8 +74,32 @@ func _build_ui() -> void:
 	_status_label.fit_content = true
 	_status_label.bbcode_enabled = true
 	_status_label.scroll_active = false
-	_status_label.text = "[color=gray]等待选择 TileMapLayer。[/color]"
 	add_child(_status_label)
+	refresh_translations()
+
+func refresh_translations() -> void:
+	I18N.update_editor_locale(_editor_interface)
+	name = I18N.t("TileMap Baker")
+	if _title_label != null:
+		_title_label.text = I18N.t("TileMapLayer Baker")
+	if _hint_label != null:
+		_hint_label.text = I18N.t("Select one or more static TileMapLayer nodes, then bake them into PNG + Sprite2D.")
+	if _output_dir_label != null:
+		_output_dir_label.text = I18N.t("Output Directory")
+	if _prefix_label != null:
+		_prefix_label.text = I18N.t("File Prefix (leave empty to use scene name)")
+	if _combine_by_z_check != null:
+		_combine_by_z_check.text = I18N.t("Combine by z_index")
+	if _hide_sources_check != null:
+		_hide_sources_check.text = I18N.t("Hide source TileMapLayers after baking")
+	if _include_hidden_check != null:
+		_include_hidden_check.text = I18N.t("Include hidden layers (for rebaking)")
+	if _overwrite_check != null:
+		_overwrite_check.text = I18N.t("Overwrite matching PNG / Baked Sprite")
+	if _bake_button != null:
+		_bake_button.text = I18N.t("Bake Selected TileMapLayer(s)")
+	if _status_label != null and _status_label.text.is_empty():
+		_status_label.text = "[color=gray]%s[/color]" % I18N.t("Waiting for TileMapLayer selection.")
 
 func _make_field_label(text: String) -> Label:
 	var label := Label.new()
@@ -86,16 +111,16 @@ func _make_separator() -> HSeparator:
 
 func bake_selected() -> void:
 	if _editor_interface == null:
-		_set_status("[color=red]EditorInterface 不可用。[/color]")
+		_set_status("[color=red]%s[/color]" % I18N.t("EditorInterface is unavailable."))
 		return
 
 	var selected_layers := _get_selected_tilemap_layers()
 	if selected_layers.is_empty():
-		_set_status("[color=yellow]请先在场景树中选择一个或多个 TileMapLayer。[/color]")
+		_set_status("[color=yellow]%s[/color]" % I18N.t("Select one or more TileMapLayer nodes in the scene tree first."))
 		return
 
 	_bake_button.disabled = true
-	_set_status("[color=gray]正在烘焙 %d 个 TileMapLayer...[/color]" % selected_layers.size())
+	_set_status("[color=gray]%s[/color]" % (I18N.t("Baking %d TileMapLayer(s)...") % selected_layers.size()))
 
 	var options := {
 		"output_dir": _output_dir_edit.text.strip_edges(),
@@ -109,7 +134,7 @@ func bake_selected() -> void:
 
 	if not result.get("ok", false):
 		_bake_button.disabled = false
-		_set_status("[color=red]%s[/color]" % result.get("error", "烘焙失败"))
+		_set_status("[color=red]%s[/color]" % result.get("error", I18N.t("Bake failed")))
 		return
 
 	await _import_as_vram_textures(result.get("files", []))
@@ -117,19 +142,26 @@ func bake_selected() -> void:
 	_bake_button.disabled = false
 
 	var lines: Array[String] = []
-	lines.append("[color=green]烘焙完成：%d 张 PNG，%d 个 Sprite2D。[/color]" % [result.get("files", []).size(), result.get("sprites", []).size()])
+	lines.append("[color=green]%s[/color]" % (I18N.t("Bake finished: %d PNG(s), %d Sprite2D node(s).") % [result.get("files", []).size(), result.get("sprites", []).size()]))
 	for file_path in result.get("files", []):
 		lines.append("- %s" % file_path)
-	lines.append("[color=gray]源 TileMapLayer 已保留，只是按选项隐藏；请检查画面后保存场景。[/color]")
+	lines.append("[color=gray]%s[/color]" % I18N.t("Source TileMapLayer nodes were kept and hidden according to the option; inspect the scene before saving."))
 	_set_status("\n".join(lines))
 
 func _get_selected_tilemap_layers() -> Array[TileMapLayer]:
 	var layers: Array[TileMapLayer] = []
 	var selection = _editor_interface.get_selection()
+	var seen := {}
 	for node in selection.get_selected_nodes():
-		if node is TileMapLayer:
-			layers.append(node)
+		_collect_tilemap_layers(node, layers, seen)
 	return layers
+
+func _collect_tilemap_layers(node: Node, layers: Array[TileMapLayer], seen: Dictionary) -> void:
+	if node is TileMapLayer and not seen.has(node.get_instance_id()):
+		seen[node.get_instance_id()] = true
+		layers.append(node)
+	for child in node.get_children():
+		_collect_tilemap_layers(child, layers, seen)
 
 func _import_as_vram_textures(files: Array) -> void:
 	if files.is_empty() or _editor_interface == null:

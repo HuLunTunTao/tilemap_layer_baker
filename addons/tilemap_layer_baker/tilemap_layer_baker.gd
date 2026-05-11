@@ -4,23 +4,24 @@ extends RefCounted
 const BAKER_META := "tilemap_layer_baker"
 const BAKER_GROUP_META := "tilemap_layer_baker_group"
 const MAX_TEXTURE_SIZE := 8192
+const I18N := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker_i18n.gd")
 
 static func bake_layers(layers: Array, options: Dictionary, editor_interface = null) -> Dictionary:
 	var valid_layers := _filter_layers(layers, options.get("include_hidden", true))
 	if valid_layers.is_empty():
-		return {"ok": false, "error": "没有可烘焙的 TileMapLayer。"}
+		return {"ok": false, "error": I18N.t("No TileMapLayer can be baked.")}
 
 	var scene_root := _find_scene_root(valid_layers[0])
 	if scene_root == null:
-		return {"ok": false, "error": "无法找到当前场景根节点。"}
+		return {"ok": false, "error": I18N.t("Cannot find the current scene root.")}
 
 	var output_dir := String(options.get("output_dir", "res://assets/baked")).strip_edges()
 	if output_dir.is_empty():
 		output_dir = "res://assets/baked"
 	if not output_dir.begins_with("res://"):
-		return {"ok": false, "error": "输出目录必须是 res:// 开头。"}
+		return {"ok": false, "error": I18N.t("Output directory must start with res://.")}
 	if not _ensure_dir(output_dir):
-		return {"ok": false, "error": "无法创建输出目录：%s" % output_dir}
+		return {"ok": false, "error": I18N.t("Cannot create output directory: %s") % output_dir}
 
 	var prefix := String(options.get("prefix", "")).strip_edges()
 	if prefix.is_empty():
@@ -38,7 +39,7 @@ static func bake_layers(layers: Array, options: Dictionary, editor_interface = n
 		_sort_layers_for_draw(group_layers)
 		var bake := _compose_group(group_layers)
 		if not bake.get("ok", false):
-			errors.append("%s: %s" % [group_key, bake.get("error", "失败")])
+			errors.append("%s: %s" % [group_key, bake.get("error", I18N.t("Failed"))])
 			continue
 
 		var file_name := "%s_%s.png" % [prefix, _safe_file_name(String(group_key))]
@@ -49,7 +50,7 @@ static func bake_layers(layers: Array, options: Dictionary, editor_interface = n
 		var image: Image = bake["image"]
 		var save_error := image.save_png(png_path)
 		if save_error != OK:
-			errors.append("保存失败 %s：%s" % [png_path, error_string(save_error)])
+			errors.append(I18N.t("Failed to save %s: %s") % [png_path, error_string(save_error)])
 			continue
 
 		var parent: Node = _common_parent(group_layers)
@@ -69,7 +70,7 @@ static func bake_layers(layers: Array, options: Dictionary, editor_interface = n
 		editor_interface.mark_scene_as_unsaved()
 
 	if created_files.is_empty():
-		return {"ok": false, "error": "没有生成 PNG。%s" % "; ".join(errors)}
+		return {"ok": false, "error": I18N.t("No PNG was generated. %s") % "; ".join(errors)}
 	return {"ok": true, "files": created_files, "sprites": created_sprites, "sprite_nodes": created_sprite_nodes, "errors": errors}
 
 static func update_texture_import_for_vram(res_path: String) -> bool:
@@ -151,15 +152,15 @@ static func _compose_group(layers: Array) -> Dictionary:
 		items.append_array(layer_items)
 
 	if items.is_empty() or not has_bounds:
-		return {"ok": false, "error": "选中图层没有可绘制图块。"}
+		return {"ok": false, "error": I18N.t("Selected layers have no drawable tiles.")}
 
 	var min_pos := Vector2(floorf(bounds.position.x), floorf(bounds.position.y))
 	var max_pos := Vector2(ceilf(bounds.end.x), ceilf(bounds.end.y))
 	var size := Vector2i(int(max_pos.x - min_pos.x), int(max_pos.y - min_pos.y))
 	if size.x <= 0 or size.y <= 0:
-		return {"ok": false, "error": "烘焙尺寸无效。"}
+		return {"ok": false, "error": I18N.t("Invalid bake size.")}
 	if size.x > MAX_TEXTURE_SIZE or size.y > MAX_TEXTURE_SIZE:
-		return {"ok": false, "error": "烘焙尺寸 %dx%d 超过安全上限 %d。请拆分图层。" % [size.x, size.y, MAX_TEXTURE_SIZE]}
+		return {"ok": false, "error": I18N.t("Bake size %dx%d exceeds the safety limit %d. Split the layer first.") % [size.x, size.y, MAX_TEXTURE_SIZE]}
 
 	var canvas := Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
 	canvas.fill(Color(0, 0, 0, 0))
