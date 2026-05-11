@@ -1,2 +1,7 @@
 # Normalize EOL for all files that Git considers text files.
 * text=auto eol=lf
+
+# Godot Asset Library should download only the addon payload.
+/** export-ignore
+/addons !export-ignore
+/addons/** !export-ignore

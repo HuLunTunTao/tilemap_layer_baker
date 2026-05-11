@@ -1,25 +1,48 @@
 # TileMapLayer Baker
 
-Godot 4 editor plugin for baking large, static visual `TileMapLayer` nodes into PNG-backed `Sprite2D` backgrounds.
+TileMapLayer Baker is a Godot 4 editor plugin that bakes selected static visual `TileMapLayer` nodes into PNG-backed `Sprite2D` backgrounds.
 
-## Why
+It is designed for decorative or background tile layers that do not need runtime TileMap behavior. Baking large static visual layers can reduce runtime TileMap processing and draw/setup overhead by replacing many tile cells with one or more regular sprites. The original `TileMapLayer` nodes stay in the scene for editing, and can be hidden after baking.
 
-Static TileMap layers still cost draw/setup work at runtime. For low-end office laptops, large decorative/isometric layers can be cheaper as a few compressed background textures while the original TileMap data stays in the scene for editing or gameplay logic.
+The editor UI supports English and Simplified Chinese.
+
+## Features
+
+- Bake one or more selected `TileMapLayer` nodes into PNG textures.
+- Create matching `Sprite2D` nodes in the edited scene.
+- Combine layers by `z_index` when they can share one baked image.
+- Re-bake hidden source layers.
+- Overwrite matching baked sprites and PNG files.
+- Register English and Simplified Chinese editor UI text.
+
+## Why Bake
+
+Use this when a `TileMapLayer` is useful while editing but unnecessary at runtime. Background decoration, dense floor details, and other visual-only static layers can often be shipped more cheaply as PNG-backed `Sprite2D` nodes.
+
+## Installation
+
+1. Copy `addons/tilemap_layer_baker` into your Godot project.
+2. Open **Project > Project Settings > Plugins**.
+3. Enable **TileMapLayer Baker**.
+4. Open a 2D scene that contains static visual `TileMapLayer` nodes.
 
 ## Usage
 
-1. Enable `TileMapLayer Baker` in **Project > Project Settings > Plugins**.
-2. Open a level scene and select one or more non-interactive visual `TileMapLayer` nodes.
-3. In the **TileMap Baker** dock, keep **按 z_index 分组合并** enabled if layers with the same `z_index` can be merged.
-4. Click **烘焙选中 TileMapLayer**.
-5. Check the result visually, then save the scene.
+1. Select one or more static visual `TileMapLayer` nodes in the scene tree.
+2. Open the **TileMap Baker** dock.
+3. Choose an output directory, or keep the default `res://assets/baked`.
+4. Keep **Combine by z_index** enabled if layers with the same `z_index` can be merged.
+5. Click **Bake Selected TileMapLayer(s)**.
+6. Inspect the generated `Sprite2D` nodes and PNG files, then save the scene.
 
-The plugin writes PNG files to `res://assets/baked` by default, adds `Sprite2D` nodes named `Baked...` under the original parent, and hides the source `TileMapLayer` nodes if that option is enabled.
+## Limitations
 
-## Notes
+- Use this only for static visual layers.
+- Do not bake layers that provide collision, navigation, triggers, gameplay logic, or dynamic content.
+- Axis-aligned tile flips are supported.
+- Arbitrary rotated or scaled `TileMapLayer` nodes should be checked visually after baking.
+- Very large layers are guarded by an 8192 pixel texture size limit.
 
-- Use this only for pure visual/static TileMap layers.
-- Keep movement, obstacle, navigation, trigger, or y-sort logic TileMaps visible or handled separately.
-- Re-baking is supported: select the hidden source layers again and keep **包含隐藏图层** + **覆盖同名 PNG / Baked Sprite** enabled.
-- The baker uses image composition from TileSet atlas regions, not a viewport screenshot, so it can work without relying on runtime camera setup.
-- Axis-aligned flips are supported; arbitrary rotated/scaled TileMap layers should be checked carefully after baking.
+## License
+
+MIT. See `LICENSE`.

@@ -1,3 +1,10 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# OS files
+.DS_Store
+
+# Documentation images are not part of the Godot project import pipeline.
+/docs/images/*.import
+/tilebaker.png.import
