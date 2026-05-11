@@ -9,7 +9,7 @@ var _editor_settings
 
 func _enter_tree() -> void:
 	var editor_interface := get_editor_interface()
-	I18N.register_translations(editor_interface)
+	I18N.configure(editor_interface)
 	_editor_settings = editor_interface.get_editor_settings()
 	if _editor_settings != null and not _editor_settings.settings_changed.is_connected(_on_editor_settings_changed):
 		_editor_settings.settings_changed.connect(_on_editor_settings_changed)
@@ -23,7 +23,7 @@ func _exit_tree() -> void:
 		remove_control_from_docks(_dock)
 		_dock.queue_free()
 		_dock = null
-	I18N.unregister_translations()
+	I18N.reset()
 
 func _create_dock(editor_interface) -> void:
 	_dock = BakerDock.new()

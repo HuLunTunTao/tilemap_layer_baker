@@ -31,25 +31,12 @@ const _ZH_CN_MESSAGES := {
 	"Bake size %dx%d exceeds the safety limit %d. Split the layer first.": "烘焙尺寸 %dx%d 超过安全上限 %d。请拆分图层。",
 }
 
-static var _translations: Array = []
 static var _editor_locale := ""
 
-static func register_translations(editor_interface = null) -> void:
-	update_editor_locale(editor_interface)
-	if not _translations.is_empty():
-		return
-	for locale in ["zh_CN", "zh_Hans", "zh"]:
-		var translation := Translation.new()
-		translation.set_locale(locale)
-		for source in _ZH_CN_MESSAGES:
-			translation.add_message(source, _ZH_CN_MESSAGES[source])
-		TranslationServer.add_translation(translation)
-		_translations.append(translation)
+static func configure(editor_interface = null) -> bool:
+	return update_editor_locale(editor_interface)
 
-static func unregister_translations() -> void:
-	for translation in _translations:
-		TranslationServer.remove_translation(translation)
-	_translations.clear()
+static func reset() -> void:
 	_editor_locale = ""
 
 static func update_editor_locale(editor_interface = null) -> bool:
@@ -62,7 +49,7 @@ static func update_editor_locale(editor_interface = null) -> bool:
 static func t(message: String) -> String:
 	if _is_chinese_locale(_editor_locale) and _ZH_CN_MESSAGES.has(message):
 		return _ZH_CN_MESSAGES[message]
-	return TranslationServer.translate(message)
+	return message
 
 static func _read_editor_locale(editor_interface = null) -> String:
 	if editor_interface != null and editor_interface.has_method("get_editor_settings"):
