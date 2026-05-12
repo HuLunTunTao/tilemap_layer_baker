@@ -4,19 +4,25 @@ extends VBoxContainer
 const TileMapLayerBaker := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker.gd")
 const I18N := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker_i18n.gd")
 
+signal _conflict_dialog_decided(confirmed: bool)
+
 var _editor_interface
 var _title_label: Label
 var _hint_label: Label
 var _output_dir_label: Label
 var _prefix_label: Label
+var _node_name_template_label: Label
+var _node_name_template_hint_label: Label
 var _output_dir_edit: LineEdit
 var _prefix_edit: LineEdit
+var _node_name_template_edit: LineEdit
 var _combine_by_z_check: CheckBox
 var _hide_sources_check: CheckBox
 var _include_hidden_check: CheckBox
 var _overwrite_check: CheckBox
 var _status_label: RichTextLabel
 var _bake_button: Button
+var _conflict_dialog: ConfirmationDialog
 
 func setup(editor_interface) -> void:
 	_editor_interface = editor_interface
@@ -50,6 +56,15 @@ func _build_ui() -> void:
 	_prefix_edit.placeholder_text = "level1_4"
 	add_child(_prefix_edit)
 
+	_node_name_template_label = _make_field_label("")
+	add_child(_node_name_template_label)
+	_node_name_template_edit = LineEdit.new()
+	add_child(_node_name_template_edit)
+	_node_name_template_hint_label = Label.new()
+	_node_name_template_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_node_name_template_hint_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.65))
+	add_child(_node_name_template_hint_label)
+
 	_combine_by_z_check = CheckBox.new()
 	_combine_by_z_check.button_pressed = true
 	add_child(_combine_by_z_check)
@@ -75,6 +90,11 @@ func _build_ui() -> void:
 	_status_label.bbcode_enabled = true
 	_status_label.scroll_active = false
 	add_child(_status_label)
+
+	_conflict_dialog = ConfirmationDialog.new()
+	_conflict_dialog.confirmed.connect(func(): _conflict_dialog_decided.emit(true))
+	_conflict_dialog.canceled.connect(func(): _conflict_dialog_decided.emit(false))
+	add_child(_conflict_dialog)
 	refresh_translations()
 
 func refresh_translations() -> void:
@@ -88,6 +108,12 @@ func refresh_translations() -> void:
 		_output_dir_label.text = I18N.t("Output Directory")
 	if _prefix_label != null:
 		_prefix_label.text = I18N.t("File Prefix (leave empty to use scene name)")
+	if _node_name_template_label != null:
+		_node_name_template_label.text = I18N.t("Node Name Template")
+	if _node_name_template_edit != null:
+		_node_name_template_edit.placeholder_text = I18N.t("BakedZ{z}")
+	if _node_name_template_hint_label != null:
+		_node_name_template_hint_label.text = I18N.t("Placeholders: {z}=Sprite2D z_index, {layer}=source layer or parent name, {scene}=scene name, {index}=output number.")
 	if _combine_by_z_check != null:
 		_combine_by_z_check.text = I18N.t("Combine by z_index")
 	if _hide_sources_check != null:
@@ -98,6 +124,10 @@ func refresh_translations() -> void:
 		_overwrite_check.text = I18N.t("Overwrite matching PNG / Baked Sprite")
 	if _bake_button != null:
 		_bake_button.text = I18N.t("Bake Selected TileMapLayer(s)")
+	if _conflict_dialog != null:
+		_conflict_dialog.title = I18N.t("Replace existing baked output?")
+		_conflict_dialog.ok_button_text = I18N.t("Replace")
+		_conflict_dialog.cancel_button_text = I18N.t("Cancel")
 	if _status_label != null and _status_label.text.is_empty():
 		_status_label.text = "[color=gray]%s[/color]" % I18N.t("Waiting for TileMapLayer selection.")
 
@@ -125,11 +155,26 @@ func bake_selected() -> void:
 	var options := {
 		"output_dir": _output_dir_edit.text.strip_edges(),
 		"prefix": _prefix_edit.text.strip_edges(),
+		"node_name_template": _node_name_template_edit.text.strip_edges(),
 		"combine_by_z": _combine_by_z_check.button_pressed,
 		"hide_sources": _hide_sources_check.button_pressed,
 		"include_hidden": _include_hidden_check.button_pressed,
 		"overwrite": _overwrite_check.button_pressed,
 	}
+	var plan := TileMapLayerBaker.prepare_bake_plan(selected_layers, options)
+	if not plan.get("ok", false):
+		_bake_button.disabled = false
+		_set_status("[color=red]%s[/color]" % plan.get("error", I18N.t("Bake failed")))
+		return
+
+	if not plan.get("conflicts", []).is_empty():
+		var confirmed := await _confirm_conflicts(plan)
+		if not confirmed:
+			_bake_button.disabled = false
+			_set_status("[color=yellow]%s[/color]" % I18N.t("Bake canceled. Existing output was not changed."))
+			return
+
+	options["bake_plan"] = plan
 	var result := TileMapLayerBaker.bake_layers(selected_layers, options, _editor_interface)
 
 	if not result.get("ok", false):
@@ -137,16 +182,14 @@ func bake_selected() -> void:
 		_set_status("[color=red]%s[/color]" % result.get("error", I18N.t("Bake failed")))
 		return
 
-	await _import_as_vram_textures(result.get("files", []))
-	TileMapLayerBaker.assign_imported_textures(result.get("sprite_nodes", []), result.get("files", []))
-	_bake_button.disabled = false
-
 	var lines: Array[String] = []
 	lines.append("[color=green]%s[/color]" % (I18N.t("Bake finished: %d PNG(s), %d Sprite2D node(s).") % [result.get("files", []).size(), result.get("sprites", []).size()]))
 	for file_path in result.get("files", []):
 		lines.append("- %s" % file_path)
 	lines.append("[color=gray]%s[/color]" % I18N.t("Source TileMapLayer nodes were kept and hidden according to the option; inspect the scene before saving."))
+	_bake_button.disabled = false
 	_set_status("\n".join(lines))
+	_import_and_assign_textures(result.get("sprite_nodes", []), result.get("files", []))
 
 func _get_selected_tilemap_layers() -> Array[TileMapLayer]:
 	var layers: Array[TileMapLayer] = []
@@ -176,5 +219,38 @@ func _import_as_vram_textures(files: Array) -> void:
 		fs.reimport_files(PackedStringArray(files))
 		fs.scan()
 
+func _import_and_assign_textures(sprites: Array, files: Array) -> void:
+	await _import_as_vram_textures(files)
+	TileMapLayerBaker.assign_imported_textures(sprites, files)
+
 func _set_status(bbcode: String) -> void:
 	_status_label.text = bbcode
+
+func _confirm_conflicts(plan: Dictionary) -> bool:
+	_conflict_dialog.dialog_text = _make_conflict_dialog_text(plan.get("conflicts", []))
+	_conflict_dialog.popup_centered(Vector2i(520, 360))
+	return await _conflict_dialog_decided
+
+func _make_conflict_dialog_text(conflicts: Array) -> String:
+	var node_lines: Array[String] = []
+	var file_lines: Array[String] = []
+	for conflict in conflicts:
+		if conflict.get("type", "") == "node":
+			var line := "- %s" % conflict.get("path", "")
+			if not conflict.get("is_baked", false):
+				line += " (%s)" % I18N.t("not generated by TileMapLayer Baker")
+			node_lines.append(line)
+		elif conflict.get("type", "") == "file":
+			file_lines.append("- %s" % conflict.get("path", ""))
+
+	var lines: Array[String] = []
+	lines.append(I18N.t("The following baked output already exists. Replace it?"))
+	if not node_lines.is_empty():
+		lines.append("")
+		lines.append(I18N.t("Nodes:"))
+		lines.append_array(node_lines)
+	if not file_lines.is_empty():
+		lines.append("")
+		lines.append(I18N.t("Files:"))
+		lines.append_array(file_lines)
+	return "\n".join(lines)

@@ -4,9 +4,11 @@ extends RefCounted
 const BAKER_META := "tilemap_layer_baker"
 const BAKER_GROUP_META := "tilemap_layer_baker_group"
 const MAX_TEXTURE_SIZE := 8192
+const DEFAULT_NODE_NAME_TEMPLATE := "BakedZ{z}"
+const _ALLOWED_NODE_NAME_PLACEHOLDERS := ["z", "layer", "scene", "index"]
 const I18N := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker_i18n.gd")
 
-static func bake_layers(layers: Array, options: Dictionary, editor_interface = null) -> Dictionary:
+static func prepare_bake_plan(layers: Array, options: Dictionary) -> Dictionary:
 	var valid_layers := _filter_layers(layers, options.get("include_hidden", true))
 	if valid_layers.is_empty():
 		return {"ok": false, "error": I18N.t("No TileMapLayer can be baked.")}
@@ -20,44 +22,139 @@ static func bake_layers(layers: Array, options: Dictionary, editor_interface = n
 		output_dir = "res://assets/baked"
 	if not output_dir.begins_with("res://"):
 		return {"ok": false, "error": I18N.t("Output directory must start with res://.")}
-	if not _ensure_dir(output_dir):
-		return {"ok": false, "error": I18N.t("Cannot create output directory: %s") % output_dir}
 
 	var prefix := String(options.get("prefix", "")).strip_edges()
 	if prefix.is_empty():
 		prefix = _scene_prefix(scene_root)
 	prefix = _safe_file_name(prefix)
 
+	var template := String(options.get("node_name_template", "")).strip_edges()
+	if template.is_empty():
+		template = DEFAULT_NODE_NAME_TEMPLATE
+
+	var placeholder_error := _validate_node_name_template(template)
+	if not placeholder_error.is_empty():
+		return {"ok": false, "error": placeholder_error}
+
 	var groups := _make_groups(valid_layers, options.get("combine_by_z", true))
+	var outputs: Array[Dictionary] = []
+	var conflicts: Array[Dictionary] = []
+	var node_names_by_parent := {}
+	var scene_name := _scene_display_name(scene_root)
+	var overwrite := options.get("overwrite", true)
+	var index := 1
+
+	for group_key in groups.keys():
+		var group_layers: Array = groups[group_key]
+		_sort_layers_for_draw(group_layers)
+		var parent: Node = _common_parent(group_layers)
+		if parent == null:
+			parent = valid_layers[0].get_parent()
+		var z_index := _group_z_index(group_layers)
+		var layer_name := _template_layer_name(group_layers, parent, scene_name)
+		var node_name_result := _make_node_name(template, z_index, layer_name, scene_name, index)
+		if not node_name_result.get("ok", false):
+			return node_name_result
+
+		var file_name := "%s_%s.png" % [prefix, _safe_file_name(String(group_key))]
+		var original_png_path := output_dir.path_join(file_name)
+		var png_path := original_png_path
+		if not overwrite:
+			png_path = _deduplicate_path(png_path)
+
+		var output := {
+			"group_key": group_key,
+			"layers": group_layers,
+			"parent": parent,
+			"node_name": node_name_result["node_name"],
+			"z_index": z_index,
+			"png_path": png_path,
+			"original_png_path": original_png_path,
+		}
+		outputs.append(output)
+
+		var parent_key := str(parent.get_instance_id())
+		var node_key := "%s/%s" % [parent_key, output["node_name"]]
+		if node_names_by_parent.has(node_key):
+			return {
+				"ok": false,
+				"error": I18N.t("Node name template creates duplicate output node: %s. Add {z}, {layer}, or {index}.") % output["node_name"],
+			}
+		node_names_by_parent[node_key] = true
+
+		var existing_node := parent.get_node_or_null(output["node_name"])
+		if existing_node != null:
+			if not overwrite:
+				return {
+					"ok": false,
+					"error": I18N.t("Target node already exists: %s. Change Node Name Template or enable overwrite.") % _scene_node_path(existing_node, scene_root),
+				}
+			output["replace_node_path"] = str(existing_node.get_path())
+			conflicts.append({
+				"type": "node",
+				"path": _scene_node_path(existing_node, scene_root),
+				"is_baked": existing_node.get_meta(BAKER_META, false),
+			})
+
+		if overwrite and (ResourceLoader.exists(original_png_path) or FileAccess.file_exists(original_png_path)):
+			conflicts.append({
+				"type": "file",
+				"path": original_png_path,
+				"is_baked": true,
+			})
+
+		index += 1
+
+	return {
+		"ok": true,
+		"valid_layers": valid_layers,
+		"scene_root": scene_root,
+		"output_dir": output_dir,
+		"prefix": prefix,
+		"outputs": outputs,
+		"conflicts": conflicts,
+	}
+
+static func bake_layers(layers: Array, options: Dictionary, editor_interface = null) -> Dictionary:
+	var plan: Dictionary = options.get("bake_plan", {})
+	if plan.is_empty():
+		plan = prepare_bake_plan(layers, options)
+	if not plan.get("ok", false):
+		return plan
+
+	var valid_layers: Array = plan.get("valid_layers", [])
+	var output_dir := String(plan.get("output_dir", "res://assets/baked"))
+	if not _ensure_dir(output_dir):
+		return {"ok": false, "error": I18N.t("Cannot create output directory: %s") % output_dir}
+
 	var created_files: Array[String] = []
 	var created_sprites: Array[NodePath] = []
 	var created_sprite_nodes: Array[Sprite2D] = []
 	var errors: Array[String] = []
 
-	for group_key in groups.keys():
-		var group_layers: Array = groups[group_key]
-		_sort_layers_for_draw(group_layers)
+	for output in plan.get("outputs", []):
+		var group_key = output["group_key"]
+		var group_layers: Array = output["layers"]
 		var bake := _compose_group(group_layers)
 		if not bake.get("ok", false):
 			errors.append("%s: %s" % [group_key, bake.get("error", I18N.t("Failed"))])
 			continue
 
-		var file_name := "%s_%s.png" % [prefix, _safe_file_name(String(group_key))]
-		var png_path := output_dir.path_join(file_name)
-		if not options.get("overwrite", true):
-			png_path = _deduplicate_path(png_path)
-
+		var png_path := String(output["png_path"])
 		var image: Image = bake["image"]
 		var save_error := image.save_png(png_path)
 		if save_error != OK:
 			errors.append(I18N.t("Failed to save %s: %s") % [png_path, error_string(save_error)])
 			continue
 
-		var parent: Node = _common_parent(group_layers)
-		if parent == null:
-			parent = valid_layers[0].get_parent()
-		var sprite := _create_or_replace_sprite(parent, group_key, options.get("overwrite", true))
-		_configure_sprite(sprite, png_path, bake, group_layers, parent)
+		var parent: Node = output["parent"]
+		var sprite := _create_or_replace_sprite(parent, output["node_name"], output.get("replace_node_path", ""))
+		if sprite == null:
+			var existing_node := parent.get_node_or_null(output["node_name"])
+			var existing_path := str(existing_node.get_path()) if existing_node != null else String(output["node_name"])
+			errors.append(I18N.t("Target node already exists: %s. Change Node Name Template or enable overwrite.") % existing_path)
+			continue
+		_configure_sprite(sprite, png_path, bake, group_layers, parent, String(group_key))
 		created_files.append(png_path)
 		created_sprites.append(sprite.get_path())
 		created_sprite_nodes.append(sprite)
@@ -282,7 +379,7 @@ static func _layer_flips_v(layer: CanvasItem) -> bool:
 	var y_axis: Vector2 = layer.global_transform.y.normalized()
 	return absf(y_axis.y) >= absf(y_axis.x) and y_axis.y < 0.0
 
-static func _configure_sprite(sprite: Sprite2D, texture_path: String, bake: Dictionary, layers: Array, parent: Node) -> void:
+static func _configure_sprite(sprite: Sprite2D, texture_path: String, bake: Dictionary, layers: Array, parent: Node, group_key: String) -> void:
 	var texture := load(texture_path)
 	if texture != null:
 		sprite.texture = texture
@@ -295,18 +392,19 @@ static func _configure_sprite(sprite: Sprite2D, texture_path: String, bake: Dict
 	sprite.z_index = _group_z_index(layers)
 	sprite.texture_filter = layers[0].texture_filter
 	sprite.set_meta(BAKER_META, true)
-	sprite.set_meta(BAKER_GROUP_META, sprite.name)
+	sprite.set_meta(BAKER_GROUP_META, group_key)
 	_set_owner_recursive(sprite, _find_scene_root(parent))
 
-static func _create_or_replace_sprite(parent: Node, group_key, overwrite: bool) -> Sprite2D:
-	var base_name := "Baked%s" % _pascal_name(String(group_key))
-	if overwrite:
-		var old := parent.get_node_or_null(base_name)
-		if old != null and old.get_meta(BAKER_META, false):
+static func _create_or_replace_sprite(parent: Node, node_name: String, replace_node_path: String) -> Sprite2D:
+	var old := parent.get_node_or_null(node_name)
+	if old != null:
+		if replace_node_path == str(old.get_path()):
 			parent.remove_child(old)
 			old.free()
+		else:
+			return null
 	var sprite := Sprite2D.new()
-	sprite.name = base_name
+	sprite.name = node_name
 	parent.add_child(sprite)
 	return sprite
 
@@ -392,6 +490,23 @@ static func _scene_prefix(scene_root: Node) -> String:
 		return _safe_file_name(scene_root.name)
 	return _safe_file_name(scene_path.get_file().get_basename())
 
+static func _scene_display_name(scene_root: Node) -> String:
+	var scene_path := scene_root.scene_file_path
+	if scene_path.is_empty():
+		return scene_root.name
+	return scene_path.get_file().get_basename()
+
+static func _scene_node_path(node: Node, scene_root: Node) -> String:
+	if node == null:
+		return ""
+	if scene_root == null:
+		return str(node.get_path())
+	if node == scene_root:
+		return scene_root.name
+	if scene_root.is_ancestor_of(node):
+		return "%s/%s" % [scene_root.name, scene_root.get_path_to(node)]
+	return str(node.get_path())
+
 static func _safe_file_name(value: String) -> String:
 	var result := value.to_lower()
 	for token in [" ", "/", "\\", ":", "*", "?", "\"", "<", ">", "|", "=", "."]:
@@ -408,6 +523,64 @@ static func _pascal_name(value: String) -> String:
 	for part in parts:
 		output += part.capitalize().replace(" ", "")
 	return output if not output.is_empty() else "Tilemap"
+
+static func _validate_node_name_template(template: String) -> String:
+	var offset := 0
+	while offset < template.length():
+		var open := template.find("{", offset)
+		var close := template.find("}", offset)
+		if close != -1 and (open == -1 or close < open):
+			return I18N.t("Node name template has an unopened placeholder.")
+		if open == -1:
+			return ""
+		close = template.find("}", open + 1)
+		if close == -1:
+			return I18N.t("Node name template has an unclosed placeholder.")
+		var placeholder := template.substr(open + 1, close - open - 1)
+		if not _ALLOWED_NODE_NAME_PLACEHOLDERS.has(placeholder):
+			return I18N.t("Unknown node name placeholder: {%s}. Supported placeholders: {z}, {layer}, {scene}, {index}.") % placeholder
+		offset = close + 1
+	return ""
+
+static func _make_node_name(template: String, z_index: int, layer_name: String, scene_name: String, index: int) -> Dictionary:
+	var rendered := template
+	rendered = rendered.replace("{z}", _format_template_z(z_index))
+	rendered = rendered.replace("{layer}", layer_name)
+	rendered = rendered.replace("{scene}", scene_name)
+	rendered = rendered.replace("{index}", "%02d" % index)
+	var node_name := _safe_node_name(rendered)
+	if node_name.is_empty():
+		return {"ok": false, "error": I18N.t("Node name template produced an empty node name.")}
+	return {"ok": true, "node_name": node_name}
+
+static func _format_template_z(z_index: int) -> String:
+	if z_index < 0:
+		return "Minus%d" % absi(z_index)
+	return str(z_index)
+
+static func _template_layer_name(layers: Array, parent: Node, scene_name: String) -> String:
+	if layers.size() == 1:
+		return String(layers[0].name)
+	if parent != null:
+		return parent.name
+	return scene_name
+
+static func _safe_node_name(value: String) -> String:
+	var normalized := value.strip_edges()
+	for token in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|", "=", ".", ",", ";", " ", "\t", "\n", "\r", "-", "(", ")", "[", "]"]:
+		normalized = normalized.replace(token, "_")
+	while "__" in normalized:
+		normalized = normalized.replace("__", "_")
+	normalized = normalized.trim_prefix("_").trim_suffix("_")
+	if normalized.is_empty():
+		return ""
+	var parts := normalized.split("_", false)
+	var output := ""
+	for part in parts:
+		if part.is_empty():
+			continue
+		output += part.substr(0, 1).to_upper() + part.substr(1)
+	return output
 
 static func _deduplicate_path(path: String) -> String:
 	if not ResourceLoader.exists(path) and not FileAccess.file_exists(path):
