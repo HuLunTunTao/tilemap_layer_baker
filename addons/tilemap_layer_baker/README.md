@@ -4,7 +4,7 @@ TileMapLayer Baker is a Godot 4 editor plugin that bakes selected static visual 
 
 It is designed for decorative or background tile layers that do not need runtime TileMap behavior. Baking large static visual layers can reduce runtime TileMap processing and draw/setup overhead by replacing many tile cells with one or more regular sprites. The original `TileMapLayer` nodes stay in the scene for editing, and can be hidden after baking.
 
-The editor UI supports English and Simplified Chinese.
+The editor UI currently supports English and Simplified Chinese.
 
 ## Features
 
@@ -13,7 +13,12 @@ The editor UI supports English and Simplified Chinese.
 - Combine layers by `z_index` when they can share one baked image.
 - Re-bake hidden source layers.
 - Overwrite matching baked sprites and PNG files.
-- Register English and Simplified Chinese editor UI text.
+- Editor UI in English and Simplified Chinese.
+
+## Supported Languages
+
+- English (`en`)
+- 简体中文 (`zh_Hans`)
 
 ## Why Bake
 
@@ -39,6 +44,8 @@ Use this when a `TileMapLayer` is useful while editing but unnecessary at runtim
 
 - Use this only for static visual layers.
 - Do not bake layers that provide collision, navigation, triggers, gameplay logic, or dynamic content.
+- TileSet scene collection sources are not supported. Only atlas tiles that can be read as image regions are baked.
+- Baked sprites are not live-linked to the source `TileMapLayer` nodes. Re-bake manually after changing a source layer.
 - Axis-aligned tile flips are supported.
 - Arbitrary rotated or scaled `TileMapLayer` nodes should be checked visually after baking.
 - Very large layers are guarded by an 8192 pixel texture size limit.
