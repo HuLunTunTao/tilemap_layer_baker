@@ -1,13 +1,18 @@
 @tool
-extends VBoxContainer
+extends ScrollContainer
 
 const TileMapLayerBaker := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker.gd")
 const I18N := preload("res://addons/tilemap_layer_baker/tilemap_layer_baker_i18n.gd")
 
+# Dock slots include hidden tabs in their minimum size. Autowrap text without a
+# real width wraps at 1px and becomes extremely tall. Keep that height inside
+# this scroll container so it cannot push the FileSystem dock off-screen.
+const _DOCK_MIN_WIDTH := 300.0
+
 signal _conflict_dialog_decided(confirmed: bool)
 
 var _editor_interface
-var _title_label: Label
+var _content: VBoxContainer
 var _hint_label: Label
 var _output_dir_label: Label
 var _prefix_label: Label
@@ -31,65 +36,74 @@ func setup(editor_interface) -> void:
 	_build_ui()
 
 func _build_ui() -> void:
-	custom_minimum_size = Vector2(300, 0)
+	custom_minimum_size = Vector2(_DOCK_MIN_WIDTH, 0)
+	horizontal_scroll_mode = SCROLL_MODE_DISABLED
+	vertical_scroll_mode = SCROLL_MODE_AUTO
+	size_flags_horizontal = SIZE_EXPAND_FILL
+	size_flags_vertical = SIZE_EXPAND_FILL
 
-	_title_label = Label.new()
-	_title_label.add_theme_font_size_override("font_size", 18)
-	add_child(_title_label)
+	_content = VBoxContainer.new()
+	_content.size_flags_horizontal = SIZE_EXPAND_FILL
+	_content.size_flags_vertical = SIZE_EXPAND_FILL
+	add_child(_content)
 
 	_hint_label = Label.new()
-	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_hint_label)
+	_prepare_wrapping_label(_hint_label)
+	_content.add_child(_hint_label)
 
-	add_child(_make_separator())
+	_content.add_child(_make_separator())
 
 	_output_dir_label = _make_field_label("")
-	add_child(_output_dir_label)
+	_content.add_child(_output_dir_label)
 	_output_dir_edit = LineEdit.new()
 	_output_dir_edit.text = "res://assets/baked"
 	_output_dir_edit.placeholder_text = "res://assets/baked"
-	add_child(_output_dir_edit)
+	_output_dir_edit.size_flags_horizontal = SIZE_EXPAND_FILL
+	_content.add_child(_output_dir_edit)
 
 	_prefix_label = _make_field_label("")
-	add_child(_prefix_label)
+	_content.add_child(_prefix_label)
 	_prefix_edit = LineEdit.new()
 	_prefix_edit.placeholder_text = "level1_4"
-	add_child(_prefix_edit)
+	_prefix_edit.size_flags_horizontal = SIZE_EXPAND_FILL
+	_content.add_child(_prefix_edit)
 
 	_node_name_template_label = _make_field_label("")
-	add_child(_node_name_template_label)
+	_content.add_child(_node_name_template_label)
 	_node_name_template_edit = LineEdit.new()
-	add_child(_node_name_template_edit)
+	_node_name_template_edit.size_flags_horizontal = SIZE_EXPAND_FILL
+	_content.add_child(_node_name_template_edit)
 	_node_name_template_hint_label = Label.new()
-	_node_name_template_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_node_name_template_hint_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.65))
-	add_child(_node_name_template_hint_label)
+	_prepare_wrapping_label(_node_name_template_hint_label)
+	_content.add_child(_node_name_template_hint_label)
 
 	_combine_by_z_check = CheckBox.new()
 	_combine_by_z_check.button_pressed = true
-	add_child(_combine_by_z_check)
+	_content.add_child(_combine_by_z_check)
 
 	_hide_sources_check = CheckBox.new()
 	_hide_sources_check.button_pressed = true
-	add_child(_hide_sources_check)
+	_content.add_child(_hide_sources_check)
 
 	_include_hidden_check = CheckBox.new()
 	_include_hidden_check.button_pressed = true
-	add_child(_include_hidden_check)
+	_content.add_child(_include_hidden_check)
 
 	_overwrite_check = CheckBox.new()
 	_overwrite_check.button_pressed = true
-	add_child(_overwrite_check)
+	_content.add_child(_overwrite_check)
 
 	_bake_button = Button.new()
 	_bake_button.pressed.connect(bake_selected)
-	add_child(_bake_button)
+	_content.add_child(_bake_button)
 
 	_status_label = RichTextLabel.new()
 	_status_label.fit_content = true
 	_status_label.bbcode_enabled = true
 	_status_label.scroll_active = false
-	add_child(_status_label)
+	_status_label.size_flags_horizontal = SIZE_EXPAND_FILL
+	_content.add_child(_status_label)
 
 	_conflict_dialog = ConfirmationDialog.new()
 	_conflict_dialog.confirmed.connect(func(): _conflict_dialog_decided.emit(true))
@@ -97,11 +111,13 @@ func _build_ui() -> void:
 	add_child(_conflict_dialog)
 	refresh_translations()
 
+func _prepare_wrapping_label(label: Label) -> void:
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = SIZE_EXPAND_FILL
+
 func refresh_translations() -> void:
 	I18N.update_editor_locale(_editor_interface)
 	name = I18N.t("TileMap Baker")
-	if _title_label != null:
-		_title_label.text = I18N.t("TileMapLayer Baker")
 	if _hint_label != null:
 		_hint_label.text = I18N.t("Select one or more static TileMapLayer nodes, then bake them into PNG + Sprite2D.")
 	if _output_dir_label != null:

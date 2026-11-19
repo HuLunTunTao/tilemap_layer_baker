@@ -3,7 +3,6 @@ extends RefCounted
 
 const _ZH_CN_MESSAGES := {
 	"TileMap Baker": "TileMap 烘焙",
-	"TileMapLayer Baker": "TileMapLayer 烘焙器",
 	"Select one or more static TileMapLayer nodes, then bake them into PNG + Sprite2D.": "选中一个或多个静态 TileMapLayer 后，一键烘焙成 PNG + Sprite2D。",
 	"Output Directory": "输出目录",
 	"File Prefix (leave empty to use scene name)": "文件前缀（留空使用场景名）",
